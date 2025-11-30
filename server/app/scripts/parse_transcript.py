@@ -110,4 +110,26 @@ def extract_all_courses(pdf_path: str) -> List[str]:
         print(f"Error parsing PDF: {e}")
         return []
 
-    return sorted(list(found_courses_set))
+    unique_courses = sorted(list(found_courses_set))
+    return unique_courses
+
+# --- Main execution block ---
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        transcript_pdf_path = sys.argv[1]
+    else:
+        transcript_pdf_path = "/Users/johna/Downloads/SSR_TSRPT_UN (20) (1).pdf"
+    
+    extracted_courses = extract_all_courses(transcript_pdf_path)
+    
+    if extracted_courses:
+        print("\n--- Found Courses ---")
+        for course in extracted_courses:
+            print(course)
+        print(f"\nTotal unique courses found: {len(extracted_courses)}")
+    else:
+        print("\nNo course codes could be extracted.")
+
+# if someone has a D, F, P, F, Q,W, R, I Z
+# also if you are a freshman, there might not be any grades attached to the courses
+# also if the user has no classes, there should be an option called i'm new to UTA and we just send them to select the professor and courses attributes

@@ -104,10 +104,10 @@ export default function UploadScreen({ file, department, onFileChange, setDepart
             onChange={(e) => setDepartment(e.target.value)}
             className="w-full p-4 bg-white/5 border border-white/10 rounded-xl 
                       focus:ring-2 focus:ring-[#0046FF] outline-none transition-all 
-                      font-bold text-white"
+                      font-bold text-white cursor-pointer"
           >
             {departments.map((dep) => (
-              <option key={dep.value} value={dep.value} className="text-black">
+              <option key={dep.value} value={dep.value}>
                 {dep.label}
               </option>
             ))}

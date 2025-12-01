@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Compass, Github } from 'lucide-react';
+import { Compass } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -61,13 +61,12 @@ export default function Layout({ children, onLogoClick }: LayoutProps) {
 
           {/* RIGHT: GITHUB LINK */}
           <a 
-            href="https://github.com/krm3798/SmartAdvisors" 
+            href="https://www.mavgrades.com/" 
             target="_blank" 
             rel="noopener noreferrer"
             className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#0046FF]/50 transition-all group text-white"
           >
-            <span className="text-sm font-bold hidden sm:block group-hover:text-[#0046FF] transition-colors">GitHub</span>
-            <Github className="w-5 h-5 group-hover:text-[#0046FF] transition-colors" />
+            <span className="text-sm font-bold hidden sm:block group-hover:text-[#0046FF] transition-colors">Mavgrades</span>
           </a>
 
         </div>

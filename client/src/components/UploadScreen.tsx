@@ -2,6 +2,21 @@ import React from 'react';
 import { UploadCloud, FileText, ArrowRight, ArrowLeft, CheckCircle, ExternalLink, Shield } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+const departments = [
+  { value: "CE", label: "Civil Engineering (CE)" },
+  { value: "CS", label: "Computer Science (CS)" },
+  { value: "ME", label: "Mechanical Engineering (ME)" },
+  { value: "AE", label: "Aerospace Engineering (AE)" },
+  { value: "IE", label: "Industrial Engineering (IE)" },
+  { value: "BE(I)", label: "Biomedical Eng. (Imaging) (BE(I))" },
+  { value: "ARCH", label: "Architectural Engineering (ARCH)" },
+  { value: "BE(T)", label: "Biomedical Eng. (Tissue) (BE(T))" },
+  { value: "CSE", label: "Computer Engineering (CSE)" },
+  { value: "CM", label: "Computer Science (CM)" },
+  { value: "EE", label: "Electrical Engineering (EE)" }
+];
+
+
 interface UploadScreenProps {
   file: File | null;
   department: string;
@@ -79,15 +94,25 @@ export default function UploadScreen({ file, department, onFileChange, setDepart
                 </a>
             </p>
         </div>
-
         <div className="mb-8 text-left">
-          <label className="block text-sm font-bold text-white/80 mb-2 ml-1">Major / Department</label>
-          <select value={department} onChange={(e) => setDepartment(e.target.value)} className="w-full p-4 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-[#0046FF] outline-none transition-all font-bold text-white">
-            <option value="CE" className="text-black">Civil Engineering (CE)</option>
-            <option value="CSE" className="text-black">Computer Science (CSE)</option>
+          <label className="block text-sm font-bold text-white/80 mb-2 ml-1">
+            Major / Department
+          </label>
+
+          <select
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            className="w-full p-4 bg-white/5 border border-white/10 rounded-xl 
+                      focus:ring-2 focus:ring-[#0046FF] outline-none transition-all 
+                      font-bold text-white"
+          >
+            {departments.map((dep) => (
+              <option key={dep.value} value={dep.value} className="text-black">
+                {dep.label}
+              </option>
+            ))}
           </select>
         </div>
-
         <button onClick={onNext} disabled={!file} className="w-full bg-[#0046FF] hover:bg-[#0036CC] text-white font-bold py-4 rounded-xl shadow-lg shadow-[#0046FF]/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg group">
           Next Step <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
         </button>

@@ -1,6 +1,8 @@
-import React from 'react';
-import { UploadCloud, FileText, ArrowRight, ArrowLeft, CheckCircle, ExternalLink, Shield } from 'lucide-react';
-import { motion } from 'framer-motion';
+import React, { useState } from 'react';
+import { UploadCloud, FileText, ArrowRight, ArrowLeft, CheckCircle, ExternalLink, Shield, ChevronDown } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import ProcessingOverlay from './ProcessingOverlay';
+import { COLLEGES, getCollegeKeyForDegree } from '../config/colleges';
 
 interface UploadScreenProps {
   file: File | null;
@@ -9,11 +11,28 @@ interface UploadScreenProps {
   setDepartment: (dept: string) => void;
   onNext: () => void;
   onBack: () => void;
+  isLoading?: boolean;
 }
 
-export default function UploadScreen({ file, department, onFileChange, setDepartment, onNext, onBack }: UploadScreenProps) {
+export default function UploadScreen({ file, department, onFileChange, setDepartment, onNext, onBack, isLoading = false }: UploadScreenProps) {
+  // Derive initial college from department (for returning users)
+  const [selectedCollege, setSelectedCollege] = useState(() => getCollegeKeyForDegree(department));
+
+  const handleCollegeChange = (collegeKey: string) => {
+    setSelectedCollege(collegeKey);
+    setDepartment(''); // reset degree when college changes
+  };
+
+  const availableDegrees = selectedCollege ? COLLEGES[selectedCollege]?.degrees || [] : [];
+
   return (
     <div className="max-w-xl mx-auto">
+      <ProcessingOverlay
+        isVisible={isLoading}
+        title="Analyzing Your Transcript"
+        steps={['Reading your PDF...', 'Extracting course data...', 'Matching completed courses...']}
+        icon="transcript"
+      />
       <button onClick={onBack} className="mb-2 text-white/60 hover:text-white flex items-center gap-2 transition-colors font-semibold">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
@@ -80,18 +99,58 @@ export default function UploadScreen({ file, department, onFileChange, setDepart
             </p>
         </div>
 
-        <div className="mb-8 text-left">
-          <label className="block text-sm font-bold text-white/80 mb-2 ml-1">Major / Department</label>
-          <select value={department} onChange={(e) => setDepartment(e.target.value)} className="w-full p-4 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-[#0046FF] outline-none transition-all font-bold text-white">
-            <option value="CE" className="text-black">Civil Engineering (CE)</option>
-            <option value="CSE" className="text-black">Computer Science &amp; Engineering (CSE)</option>
-            <option value="EE" className="text-black">Electrical Engineering (EE)</option>
-            <option value="MAE" className="text-black">Mechanical &amp; Aerospace Engineering (MAE)</option>
-            <option value="IE" className="text-black">Industrial Engineering (IE)</option>
-          </select>
+        <div className="mb-8 text-left space-y-4">
+          {/* College dropdown */}
+          <div>
+            <label className="block text-sm font-bold text-white/80 mb-2 ml-1">College</label>
+            <div className="relative">
+              <select
+                value={selectedCollege}
+                onChange={(e) => handleCollegeChange(e.target.value)}
+                className={`w-full p-4 pr-10 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-[#0046FF] outline-none transition-all font-bold appearance-none ${
+                  selectedCollege ? 'text-white' : 'text-white/40'
+                }`}
+              >
+                <option value="" disabled className="text-black">Choose a college...</option>
+                {Object.entries(COLLEGES).map(([key, college]) => (
+                  <option key={key} value={key} className="text-black">{college.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Degree dropdown — appears after college is picked */}
+          <AnimatePresence>
+            {selectedCollege && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <label className="block text-sm font-bold text-white/80 mb-2 ml-1">Degree</label>
+                <div className="relative">
+                  <select
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    className={`w-full p-4 pr-10 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-[#0046FF] outline-none transition-all font-bold appearance-none ${
+                      department ? 'text-white' : 'text-white/40'
+                    }`}
+                  >
+                    <option value="" disabled className="text-black">Choose a degree...</option>
+                    {availableDegrees.map((deg) => (
+                      <option key={deg.code} value={deg.code} className="text-black">{deg.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        <button onClick={onNext} disabled={!file} className="w-full bg-[#0046FF] hover:bg-[#0036CC] text-white font-bold py-4 rounded-xl shadow-lg shadow-[#0046FF]/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg group">
+        <button onClick={onNext} disabled={!file || !department} className="w-full bg-[#0046FF] hover:bg-[#0036CC] text-white font-bold py-4 rounded-xl shadow-lg shadow-[#0046FF]/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg group">
           Next Step <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
         </button>
       </motion.div>

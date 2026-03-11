@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Clock, Loader2, Check, Sparkles, AlertCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Calendar, Clock, Loader2, Check, Sparkles, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ProcessingOverlay from './ProcessingOverlay';
 
 interface EligibleCourse {
   code: string;
@@ -9,24 +10,56 @@ interface EligibleCourse {
   requirement: string;
 }
 
+interface ElectiveCourse {
+  code: string;
+  name: string;
+  creditHours: number;
+}
+
 interface DegreePlanSetupProps {
   completedCourses: string[];
   department: string;
-  onPlanGenerated: (creditsPerSemester: number, selectedCourses: string[]) => void;
+  onPlanGenerated: (
+    creditsPerSemester: number,
+    selectedCourses: string[],
+    startSemester: string,
+    startYear: number,
+    includeSummer: boolean,
+    chosenElectives: string[]
+  ) => void;
   isLoading: boolean;
   onBack: () => void;
 }
 
 const API_URL = 'http://127.0.0.1:8000';
-
 const CREDIT_OPTIONS = [12, 13, 14, 15, 16, 17, 18];
+const SEMESTER_OPTIONS = ['Fall', 'Spring', 'Summer'];
+const currentYear = new Date().getFullYear();
+const YEAR_OPTIONS = [currentYear, currentYear + 1, currentYear + 2, currentYear + 3];
+
+function getSuggestedSemester(): { semester: string; year: number } {
+  const month = new Date().getMonth() + 1; // 1-based
+  const year = new Date().getFullYear();
+  // Aug–Dec: next semester is Spring of next year
+  if (month >= 8) return { semester: 'Spring', year: year + 1 };
+  // Jan–Jul: next semester is Fall of this year
+  return { semester: 'Fall', year };
+}
 
 export default function DegreePlanSetup({ completedCourses, department, onPlanGenerated, isLoading, onBack }: DegreePlanSetupProps) {
+  const suggested = getSuggestedSemester();
+
   const [creditsPerSemester, setCreditsPerSemester] = useState(15);
+  const [startSemester, setStartSemester] = useState(suggested.semester);
+  const [startYear, setStartYear] = useState(suggested.year);
+  const [includeSummer, setIncludeSummer] = useState(false);
   const [eligibleCourses, setEligibleCourses] = useState<EligibleCourse[]>([]);
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [stats, setStats] = useState<{ totalCourses: number; totalHours: number; completedCourses: number; completedHours: number } | null>(null);
+  const [allElectives, setAllElectives] = useState<ElectiveCourse[]>([]);
+  const [requiredElectiveCount, setRequiredElectiveCount] = useState(0);
+  const [chosenElectives, setChosenElectives] = useState<Set<string>>(new Set());
 
   // Fetch eligible courses on mount
   useEffect(() => {
@@ -45,6 +78,8 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
         if (data.success) {
           setEligibleCourses(data.eligibleCourses || []);
           setStats(data.stats || null);
+          setAllElectives(data.allElectives || []);
+          setRequiredElectiveCount(data.requiredElectiveCount || 0);
         }
       } catch (err) {
         console.error('Failed to fetch eligible courses:', err);
@@ -63,17 +98,28 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
   const toggleCourse = (code: string) => {
     setSelectedCourses(prev => {
       const next = new Set(prev);
-      if (next.has(code)) {
-        next.delete(code);
-      } else {
-        next.add(code);
-      }
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
       return next;
     });
   };
 
+  const toggleElective = (code: string) => {
+    setChosenElectives(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const electivesNeeded = requiredElectiveCount;
+  const electivesPicked = chosenElectives.size;
+
   const requiredCourses = eligibleCourses.filter(c => c.requirement === 'required');
-  const electiveCourses = eligibleCourses.filter(c => c.requirement === 'elective');
+  const electiveCourses = eligibleCourses.filter(
+    c => c.requirement === 'elective' && (chosenElectives.size === 0 || chosenElectives.has(c.code))
+  );
 
   const overTarget = selectedHours > creditsPerSemester + 1;
   const atTarget = selectedHours >= creditsPerSemester - 1 && selectedHours <= creditsPerSemester + 1;
@@ -83,6 +129,12 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
 
   return (
     <div className="max-w-4xl mx-auto">
+      <ProcessingOverlay
+        isVisible={isLoading}
+        title="Building Your Degree Plan"
+        steps={['Checking prerequisites...', 'Scheduling courses by priority...', 'Finding top professors...', 'Finalizing your plan...']}
+        icon="plan"
+      />
       {/* Back */}
       <button onClick={onBack} className="flex items-center gap-2 text-white/60 hover:text-white transition-colors font-bold mb-6">
         <ArrowLeft className="w-4 h-4" /> Back to Review
@@ -117,6 +169,151 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
           </span>
         </motion.div>
       )}
+
+      {/* Choose Your Electives */}
+      {!loadingCourses && allElectives.length > 0 && electivesNeeded > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.12 }}
+          className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-8"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-[#FF8040] p-2 rounded-xl">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Choose Your Electives</h3>
+                <p className="text-white/40 text-sm">Pick at least {electivesNeeded} elective{electivesNeeded !== 1 ? 's' : ''} you want in your degree plan.</p>
+              </div>
+            </div>
+            <span className={`text-sm font-bold px-3 py-1.5 rounded-full border ${
+              electivesPicked >= electivesNeeded
+                ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                : 'text-[#FF8040] bg-[#FF8040]/10 border-[#FF8040]/20'
+            }`}>
+              {electivesPicked} / {electivesNeeded} selected
+            </span>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-2">
+            {allElectives.map(elective => (
+              <motion.button
+                key={elective.code}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => toggleElective(elective.code)}
+                className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
+                  chosenElectives.has(elective.code)
+                    ? 'border-[#FF8040]/50 bg-[#FF8040]/10 shadow-sm'
+                    : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/20'
+                }`}
+              >
+                <div
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                    chosenElectives.has(elective.code) ? 'border-transparent bg-[#FF8040]' : 'border-white/20'
+                  }`}
+                >
+                  <AnimatePresence>
+                    {chosenElectives.has(elective.code) && (
+                      <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                        <Check className="w-3 h-3 text-white" />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-white font-bold text-sm">{elective.code}</span>
+                    <span className="text-white/30 text-xs bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
+                      {elective.creditHours} hrs
+                    </span>
+                  </div>
+                  <p className="text-white/45 text-xs truncate mt-0.5">{elective.name}</p>
+                </div>
+              </motion.button>
+            ))}
+          </div>
+
+          {electivesPicked < electivesNeeded && electivesPicked > 0 && (
+            <p className="text-amber-400 text-xs mt-3 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" /> Pick {electivesNeeded - electivesPicked} more to meet your degree requirements
+            </p>
+          )}
+        </motion.div>
+      )}
+
+      {/* Semester Options */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: allElectives.length > 0 ? 0.18 : 0.12 }}
+        className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-8"
+      >
+        <div className="flex items-center gap-3 mb-5">
+          <div className="bg-[#FF8040] p-2 rounded-xl">
+            <Calendar className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-white">Semester Options</h3>
+            <p className="text-white/40 text-sm">When do you want to start planning from?</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-6 items-end">
+          {/* Start semester + year */}
+          <div>
+            <p className="text-white/50 text-xs font-semibold uppercase tracking-wider mb-2">Start planning from</p>
+            <div className="flex gap-2 flex-wrap">
+              {SEMESTER_OPTIONS.map(sem => (
+                <button
+                  key={sem}
+                  onClick={() => setStartSemester(sem)}
+                  className={`px-4 py-2 rounded-xl font-bold text-sm transition-all border ${
+                    startSemester === sem
+                      ? 'bg-[#FF8040] border-[#FF8040] text-white shadow-lg shadow-[#FF8040]/20'
+                      : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10 hover:border-white/20'
+                  }`}
+                >
+                  {sem}
+                </button>
+              ))}
+              <select
+                value={startYear}
+                onChange={e => setStartYear(Number(e.target.value))}
+                className="bg-white/5 border border-white/10 text-white/80 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-white/30 cursor-pointer"
+              >
+                {YEAR_OPTIONS.map(yr => (
+                  <option key={yr} value={yr} className="bg-[#0a0a1a] text-white">{yr}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-white/30 text-xs mt-2">
+              Planning from: <span className="text-[#FF8040] font-semibold">{startSemester} {startYear}</span>
+            </p>
+          </div>
+
+          {/* Summer toggle */}
+          <div className="flex items-center gap-3 mb-1">
+            <button
+              onClick={() => setIncludeSummer(prev => !prev)}
+              className={`relative w-11 h-6 rounded-full transition-colors border flex-shrink-0 ${
+                includeSummer ? 'bg-[#0046FF] border-[#0046FF]' : 'bg-white/10 border-white/20'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  includeSummer ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+            <div>
+              <p className="text-white/70 text-sm font-semibold">Include summer semesters</p>
+              <p className="text-white/30 text-xs">{includeSummer ? 'Summer semesters will be included' : 'Skipping summers'}</p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Credit hours picker */}
       <motion.div
@@ -171,8 +368,8 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
               <BookOpen className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Pick Courses for Next Semester</h3>
-              <p className="text-white/40 text-sm">Select the courses you want to take. We'll fill the remaining semesters automatically.</p>
+              <h3 className="text-lg font-bold text-white">Pick Courses for {startSemester} {startYear}</h3>
+              <p className="text-white/40 text-sm">Select what you want to take next. We'll schedule the rest automatically.</p>
             </div>
           </div>
         </div>
@@ -209,10 +406,13 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
             {/* Required courses */}
             {requiredCourses.length > 0 && (
               <div className="mb-6">
-                <h4 className="text-sm font-bold text-white/50 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-[#0046FF]" />
-                  Required Courses
-                </h4>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-5 rounded-full bg-[#0046FF]" />
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider">Required Courses</h4>
+                  <span className="text-xs text-white/40 bg-[#0046FF]/10 border border-[#0046FF]/20 px-2 py-0.5 rounded-full font-semibold">
+                    {requiredCourses.length} courses
+                  </span>
+                </div>
                 <div className="grid md:grid-cols-2 gap-2">
                   {requiredCourses.map(course => (
                     <CoursePickCard
@@ -230,10 +430,13 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
             {/* Elective courses */}
             {electiveCourses.length > 0 && (
               <div>
-                <h4 className="text-sm font-bold text-white/50 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-[#FF8040]" />
-                  Elective Courses
-                </h4>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-5 rounded-full bg-[#FF8040]" />
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider">Elective Courses</h4>
+                  <span className="text-xs text-white/40 bg-[#FF8040]/10 border border-[#FF8040]/20 px-2 py-0.5 rounded-full font-semibold">
+                    {electiveCourses.length} courses
+                  </span>
+                </div>
                 <div className="grid md:grid-cols-2 gap-2">
                   {electiveCourses.map(course => (
                     <CoursePickCard
@@ -265,8 +468,8 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => onPlanGenerated(creditsPerSemester, Array.from(selectedCourses))}
-          disabled={isLoading}
+          onClick={() => onPlanGenerated(creditsPerSemester, Array.from(selectedCourses), startSemester, startYear, includeSummer, Array.from(chosenElectives))}
+          disabled={isLoading || (electivesNeeded > 0 && electivesPicked < electivesNeeded)}
           className="inline-flex items-center gap-3 px-10 py-4 bg-[#FF8040] hover:bg-[#ff925c] text-white font-bold text-lg rounded-xl shadow-lg shadow-[#FF8040]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? (
@@ -280,9 +483,11 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
           )}
         </motion.button>
         <p className="text-white/30 text-xs mt-3">
-          {selectedCourses.size === 0
-            ? "We'll auto-pick the best courses for each semester"
-            : `${selectedCourses.size} courses selected for next semester`}
+          {electivesNeeded > 0 && electivesPicked < electivesNeeded
+            ? `Select ${electivesNeeded - electivesPicked} more elective${electivesNeeded - electivesPicked !== 1 ? 's' : ''} to continue`
+            : selectedCourses.size === 0
+              ? "We'll auto-pick the best courses for each semester"
+              : `${selectedCourses.size} courses selected for ${startSemester} ${startYear}`}
         </p>
       </motion.div>
     </div>
@@ -324,13 +529,23 @@ function CoursePickCard({ course, selected, onToggle, accent }: {
 
       {/* Course info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-white font-bold text-sm">{course.code}</span>
           <span className="text-white/30 text-xs bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
             {course.creditHours} hrs
           </span>
+          <span
+            className="text-xs font-bold px-1.5 py-0.5 rounded"
+            style={{
+              color: accent,
+              backgroundColor: `${accent}18`,
+              border: `1px solid ${accent}40`,
+            }}
+          >
+            {course.requirement === 'required' ? 'Required' : 'Elective'}
+          </span>
         </div>
-        <p className="text-white/45 text-xs truncate">{course.name}</p>
+        <p className="text-white/45 text-xs truncate mt-0.5">{course.name}</p>
       </div>
     </motion.button>
   );

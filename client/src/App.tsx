@@ -9,11 +9,14 @@ import PreferenceForm, { Preferences } from './components/PreferenceForm';
 import RecommendationDashboard from './components/RecommendationDashboard';
 import DegreePlanSetup from './components/DegreePlanSetup';
 import SemesterPlanView from './components/SemesterPlanView';
+import WelcomeBack from './components/WelcomeBack';
 
 // Use localhost for local development
 const API_URL = 'http://127.0.0.1:8000';
 
 // link to run locally: http://localhost:5173/
+
+const STORAGE_KEY = (email: string) => `sa_plan_${email}`;
 
 interface ApiRecommendationResponse {
   success: boolean;
@@ -30,7 +33,8 @@ interface ApiRecommendationResponse {
   2  = TranscriptReview
   --- branches here ---
   Guest:     3 = PreferenceForm → 4 = RecommendationDashboard
-  Logged-in: 3 = DegreePlanSetup → 4 = SemesterPlanView
+  Logged-in: 3 = PreferenceForm (prefs) → 3 = DegreePlanSetup (when prefs set) → 4 = SemesterPlanView
+  Returning: Sign In → 4 = WelcomeBack dashboard → SemesterPlanView
 */
 
 function App() {
@@ -40,12 +44,13 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [department, setDepartment] = useState<string>('CE');
+  const [department, setDepartment] = useState<string>('');
   const [completedCourses, setCompletedCourses] = useState<string[]>([]);
   const [apiData, setApiData] = useState<ApiRecommendationResponse | null>(null);
   const [userPrefs, setUserPrefs] = useState<Preferences | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [degreePlan, setDegreePlan] = useState<any>(null);
+  const [isReturningUser, setIsReturningUser] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
@@ -115,7 +120,14 @@ function App() {
   };
 
   // Logged-in flow: degree plan generation
-  const handleGenerateDegreePlan = async (creditsPerSemester: number, selectedCourses: string[]) => {
+  const handleGenerateDegreePlan = async (
+    creditsPerSemester: number,
+    selectedCourses: string[],
+    startSemester: string,
+    startYear: number,
+    includeSummer: boolean,
+    chosenElectives: string[]
+  ) => {
     setIsLoading(true);
 
     try {
@@ -127,12 +139,29 @@ function App() {
           department,
           credits_per_semester: creditsPerSemester,
           selected_next_semester: selectedCourses,
+          start_semester: startSemester,
+          start_year: startYear,
+          include_summer: includeSummer,
+          chosen_electives: chosenElectives,
+          preferences: userPrefs,
         }),
       });
       const data = await response.json();
       if (response.ok && data.success) {
         setDegreePlan(data);
         setStep(4);
+        // Save plan to localStorage so returning users skip the upload flow
+        if (googleUser) {
+          try {
+            localStorage.setItem(STORAGE_KEY(googleUser.email), JSON.stringify({
+              completedCourses,
+              department,
+              degreePlan: data,
+            }));
+          } catch {
+            // localStorage quota exceeded — continue without persisting
+          }
+        }
       } else {
         alert("Error: " + (data.error || "Could not generate degree plan"));
       }
@@ -144,10 +173,49 @@ function App() {
   };
 
   const handleLogoClick = () => {
+    // If logged in with a plan, go to WelcomeBack dashboard
+    if (isLoggedIn && degreePlan && googleUser) {
+      setIsReturningUser(true);
+      setStep(4);
+      return;
+    }
+    // Otherwise, go to landing page
     setStep(0);
     setShowLogin(false);
     setIsLoggedIn(false);
+    setIsReturningUser(false);
     setGoogleUser(null);
+    setDegreePlan(null);
+    setCompletedCourses([]);
+    setFile(null);
+    setUserPrefs(null);
+  };
+
+  const handleSignOut = () => {
+    if (googleUser) localStorage.removeItem(STORAGE_KEY(googleUser.email));
+    setStep(0);
+    setShowLogin(false);
+    setIsLoggedIn(false);
+    setIsReturningUser(false);
+    setGoogleUser(null);
+    setDegreePlan(null);
+    setCompletedCourses([]);
+    setFile(null);
+    setUserPrefs(null);
+  };
+
+  const handleEditPlan = () => {
+    setStep(3);
+  };
+
+  const handleNewTranscript = () => {
+    if (googleUser) localStorage.removeItem(STORAGE_KEY(googleUser.email));
+    setIsReturningUser(false);
+    setDegreePlan(null);
+    setCompletedCourses([]);
+    setFile(null);
+    setUserPrefs(null);
+    setStep(1);
   };
 
   // --- Disclaimer overlay (blocks everything) ---
@@ -161,7 +229,31 @@ function App() {
       <Layout onLogoClick={handleLogoClick}>
         <LoginPage
           onGuestContinue={() => { setIsLoggedIn(false); setShowLogin(false); setStep(1); }}
-          onLogin={(user) => { setGoogleUser(user); setIsLoggedIn(true); setShowLogin(false); setStep(1); }}
+          onLogin={(user) => {
+            // Check for a previously saved plan for this user
+            const savedRaw = localStorage.getItem(STORAGE_KEY(user.email));
+            if (savedRaw) {
+              try {
+                const saved = JSON.parse(savedRaw);
+                setCompletedCourses(saved.completedCourses || []);
+                setDepartment(saved.department || '');
+                setDegreePlan(saved.degreePlan);
+                setGoogleUser(user);
+                setIsLoggedIn(true);
+                setIsReturningUser(true);
+                setShowLogin(false);
+                setStep(4);
+                return;
+              } catch {
+                // Corrupted saved data — clear it and fall through to normal flow
+                localStorage.removeItem(STORAGE_KEY(user.email));
+              }
+            }
+            setGoogleUser(user);
+            setIsLoggedIn(true);
+            setShowLogin(false);
+            setStep(1);
+          }}
           onBack={() => setShowLogin(false)}
         />
       </Layout>
@@ -179,13 +271,13 @@ function App() {
   );
 
   if (step === 1) return (
-    <Layout onLogoClick={handleLogoClick}>
-      <UploadScreen file={file} department={department} onFileChange={handleFileChange} setDepartment={setDepartment} onNext={handleUploadAndParse} onBack={() => setStep(0)} />
+    <Layout onLogoClick={handleLogoClick} user={isLoggedIn ? googleUser : undefined} onSignOut={isLoggedIn ? handleSignOut : undefined}>
+      <UploadScreen file={file} department={department} onFileChange={handleFileChange} setDepartment={setDepartment} onNext={handleUploadAndParse} onBack={() => setStep(0)} isLoading={isLoading} />
     </Layout>
   );
 
   if (step === 2) return (
-    <Layout onLogoClick={handleLogoClick}>
+    <Layout onLogoClick={handleLogoClick} user={isLoggedIn ? googleUser : undefined} onSignOut={isLoggedIn ? handleSignOut : undefined}>
       <TranscriptReview courses={completedCourses} onNext={() => setStep(3)} onBack={() => setStep(1)} />
     </Layout>
   );
@@ -193,14 +285,27 @@ function App() {
   // Step 3: branches based on login state
   if (step === 3) {
     if (isLoggedIn) {
+      // Signed-in flow: collect preferences first, then show plan setup
+      if (!userPrefs) {
+        return (
+          <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
+            <PreferenceForm
+              onGenerateSchedule={(prefs) => setUserPrefs(prefs)}
+              isLoading={false}
+              onBack={() => setStep(2)}
+              buttonLabel="Continue to Plan Setup"
+            />
+          </Layout>
+        );
+      }
       return (
-        <Layout onLogoClick={handleLogoClick}>
+        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
           <DegreePlanSetup
             completedCourses={completedCourses}
             department={department}
             onPlanGenerated={handleGenerateDegreePlan}
             isLoading={isLoading}
-            onBack={() => setStep(2)}
+            onBack={() => setUserPrefs(null)}
           />
         </Layout>
       );
@@ -214,10 +319,32 @@ function App() {
 
   // Step 4: branches based on login state
   if (step === 4) {
+    // Returning user welcome dashboard
+    if (isLoggedIn && degreePlan && isReturningUser && googleUser) {
+      return (
+        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
+          <WelcomeBack
+            userName={googleUser.name}
+            userPicture={googleUser.picture}
+            plan={degreePlan}
+            department={department}
+            onViewPlan={() => setIsReturningUser(false)}
+            onEditPlan={() => { setIsReturningUser(false); handleEditPlan(); }}
+            onNewTranscript={handleNewTranscript}
+          />
+        </Layout>
+      );
+    }
+    // Full semester plan view
     if (isLoggedIn && degreePlan) {
       return (
-        <Layout onLogoClick={handleLogoClick}>
-          <SemesterPlanView plan={degreePlan} onBack={() => setStep(3)} />
+        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
+          <SemesterPlanView
+            plan={degreePlan}
+            onBack={() => setStep(3)}
+            onEditPlan={handleEditPlan}
+            onNewTranscript={handleNewTranscript}
+          />
         </Layout>
       );
     }

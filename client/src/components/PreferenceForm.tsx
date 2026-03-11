@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ProcessingOverlay from './ProcessingOverlay';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Preferences interface
@@ -43,6 +44,7 @@ interface PreferenceFormProps {
   onGenerateSchedule: (prefs: Preferences) => void;
   isLoading: boolean;
   onBack: () => void;
+  buttonLabel?: string;
 }
 
 const MAX_PRIORITY_PICKS = 3;
@@ -221,7 +223,7 @@ function AvoidCard({
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
-export default function PreferenceForm({ onGenerateSchedule, isLoading, onBack }: PreferenceFormProps) {
+export default function PreferenceForm({ onGenerateSchedule, isLoading, onBack, buttonLabel }: PreferenceFormProps) {
   const [prefs, setPrefs] = useState<Preferences>({
     extraCredit: false,
     clearGrading: false,
@@ -253,6 +255,12 @@ export default function PreferenceForm({ onGenerateSchedule, isLoading, onBack }
 
   return (
     <div className="max-w-3xl mx-auto">
+      <ProcessingOverlay
+        isVisible={isLoading}
+        title="Finding Your Best Matches"
+        steps={['Analyzing your preferences...', 'Scoring professors...', 'Ranking recommendations...']}
+        icon="recommend"
+      />
       <button onClick={onBack} className="mb-4 text-white/60 hover:text-white flex items-center gap-2 transition-colors font-semibold">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
@@ -374,8 +382,8 @@ export default function PreferenceForm({ onGenerateSchedule, isLoading, onBack }
             className="w-full bg-[#0046FF] hover:bg-[#0036CC] text-white font-bold py-4 rounded-xl shadow-lg shadow-[#0046FF]/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-lg"
           >
             {isLoading
-              ? (<>Finding your matches <Loader2 className="animate-spin w-5 h-5" /></>)
-              : (<><Sparkles className="w-5 h-5" /> Find My Best Professors</>)
+              ? (<>Processing <Loader2 className="animate-spin w-5 h-5" /></>)
+              : (<><Sparkles className="w-5 h-5" /> {buttonLabel || 'Find My Best Professors'}</>)
             }
           </motion.button>
 

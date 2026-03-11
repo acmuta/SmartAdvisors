@@ -44,10 +44,23 @@ def is_course_eligible(course, completed, course_map):
                         return False
     return True
 
+# Courses that satisfy the same requirement (either/or options across departments).
+# Completing one implies the other for prerequisite checking purposes.
+COURSE_EQUIVALENCES = {
+    'MATH 3313': 'IE 3301',    # Probability: either satisfies
+    'IE 3301':   'MATH 3313',
+    'MATH 3330': 'CSE 3380',   # Linear Algebra: either satisfies
+    'CSE 3380':  'MATH 3330',
+}
+
+
 def expand_completed_with_prereqs(normalized_completed, course_map):
     """
     Transitively expand the completed set: if you passed a course, you must have
     satisfied its prerequisites too (directly or transitively).
+
+    Also applies course equivalences (e.g. MATH 3313 ↔ IE 3301) so that
+    completing one version of a course satisfies prereqs requiring the other.
 
     Example: student has MATH 2425 (Calc II) on transcript.
       MATH 2425 requires MATH 1426 → add MATH 1426 as implied completed.
@@ -60,15 +73,20 @@ def expand_completed_with_prereqs(normalized_completed, course_map):
     while changed:
         changed = False
         for code in list(expanded):
+            # Transitive prereq expansion
             course = course_map.get(code)
-            if not course:
-                continue
-            prereqs = course.get('Pre_Requisites', '').strip()
-            if prereqs and prereqs.lower() != 'none':
-                for p in [normalize_code(x) for x in prereqs.split(',') if x.strip()]:
-                    if p not in expanded:
-                        expanded.add(p)
-                        changed = True
+            if course:
+                prereqs = course.get('Pre_Requisites', '').strip()
+                if prereqs and prereqs.lower() != 'none':
+                    for p in [normalize_code(x) for x in prereqs.split(',') if x.strip()]:
+                        if p not in expanded:
+                            expanded.add(p)
+                            changed = True
+            # Equivalence expansion (e.g. took MATH 3313 → also counts as IE 3301)
+            equiv = COURSE_EQUIVALENCES.get(code)
+            if equiv and equiv not in expanded:
+                expanded.add(equiv)
+                changed = True
     return expanded
 
 
@@ -107,7 +125,16 @@ def filter_eligible_courses_unique(all_courses, completed_courses):
 
     return eligible
 
-def generate_degree_plan(all_courses, completed_courses, credits_per_semester, selected_next=None):
+def generate_degree_plan(
+    all_courses,
+    completed_courses,
+    credits_per_semester,
+    selected_next=None,
+    start_semester=None,
+    start_year=None,
+    include_summer=False,
+    chosen_electives=None,
+):
     """
     Generate a semester-by-semester degree plan.
     Uses greedy topological scheduling: each semester, pick eligible courses
@@ -119,10 +146,52 @@ def generate_degree_plan(all_courses, completed_courses, credits_per_semester, s
         completed_courses: list of completed course code strings
         credits_per_semester: target credit hours per semester (e.g. 15)
         selected_next: optional list of course codes the user picked for semester 1
+        start_semester: "Fall", "Spring", or "Summer" — when to begin planning
+        start_year: integer year to start from (e.g. 2026)
+        include_summer: whether to schedule summer semesters
 
     Returns:
         list of semester dicts: [{semester, label, courses: [{code, name, creditHours, requirement}], totalHours}]
     """
+
+    # --- Semester label generator ---
+    def _make_label_generator(start_sem, start_yr, with_summer):
+        order = ['Fall', 'Spring', 'Summer'] if with_summer else ['Fall', 'Spring']
+        try:
+            idx = order.index(start_sem)
+        except ValueError:
+            idx = 0
+        current_year = [start_yr]  # use list so nested func can mutate
+
+        def next_label():
+            sem = order[idx]
+            label = f"{sem} {current_year[0]}"
+            next_idx = (idx + 1) % len(order)
+            # Year increments after Fall (Fall is the last semester of an academic year)
+            if sem == 'Fall':
+                current_year[0] += 1
+            # update idx via closure trick
+            _make_label_generator.idx = next_idx
+            return label
+
+        # Wrap to update idx properly using a mutable container
+        state = {'idx': idx, 'year': start_yr}
+
+        def next_label_stateful():
+            sem = order[state['idx']]
+            label = f"{sem} {state['year']}"
+            next_idx = (state['idx'] + 1) % len(order)
+            if sem == 'Fall':
+                state['year'] += 1
+            state['idx'] = next_idx
+            return label
+
+        return next_label_stateful
+
+    _effective_start_sem = start_semester or 'Fall'
+    _effective_start_year = start_year or 2026
+    get_next_label = _make_label_generator(_effective_start_sem, _effective_start_year, include_summer)
+
     course_map = {normalize_code(c['Course_Num']): c for c in all_courses}
     normalized_completed = set(normalize_code(c) for c in completed_courses)
     normalized_completed = expand_completed_with_prereqs(normalized_completed, course_map)
@@ -148,6 +217,15 @@ def generate_degree_plan(all_courses, completed_courses, credits_per_semester, s
         for code in list(remaining):
             if code.startswith('UNIV'):
                 remaining.pop(code, None)
+
+    # Filter electives to only include user-chosen ones (if provided)
+    if chosen_electives is not None:
+        chosen_normalized = set(normalize_code(c) for c in chosen_electives)
+        for code in list(remaining):
+            course = remaining[code]
+            if course.get('Requirement', 'required').lower() == 'elective':
+                if code not in chosen_normalized:
+                    remaining.pop(code)
 
     # Build reverse dependency map: for each course, how many other courses need it as a prereq
     unlock_count = {}
@@ -265,7 +343,7 @@ def generate_degree_plan(all_courses, completed_courses, credits_per_semester, s
         semester_courses = unique_courses
 
         # Build semester output
-        sem_label = 'Next Semester' if semester_num == 1 else f'Semester {semester_num}'
+        sem_label = get_next_label()
         course_list = []
         for code in semester_courses:
             c = remaining[code]

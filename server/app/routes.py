@@ -179,6 +179,96 @@ def calculate_match_score(professor_obj, user_prefs):
     return round(final, 1)
 
 
+def _build_professors_for_course(code, user_prefs=None):
+    """
+    Look up top-3 professors for a course code.
+    user_prefs defaults to {} so ranking falls back to pure quality/rating score.
+    Used by the signed-in degree plan flow (no user preferences available there).
+    """
+    if user_prefs is None:
+        user_prefs = {}
+    try:
+        offerings = get_professor_offerings_for_course(code)
+    except Exception:
+        return []
+
+    professors_list = []
+    seen = set()
+
+    for offer in offerings:
+        for prof_name in offer.get('instructors', []):
+            if not prof_name or prof_name.lower() in ['staff', 'tba', 'unknown']:
+                continue
+            if prof_name in seen:
+                continue
+            seen.add(prof_name)
+            try:
+                db_prof = Professor.query.filter(Professor.name.ilike(prof_name)).first()
+
+                if not db_prof and ',' in prof_name:
+                    parts = prof_name.split(',')
+                    if len(parts) >= 2:
+                        swapped = f"{parts[1].strip()} {parts[0].strip()}"
+                        db_prof = Professor.query.filter(Professor.name.ilike(swapped)).first()
+
+                if not db_prof:
+                    parts = prof_name.replace(',', '').split()
+                    if parts:
+                        last_name = parts[0] if ',' in prof_name else parts[-1]
+                        db_prof = Professor.query.filter(Professor.name.ilike(f"%{last_name}%")).first()
+
+                match_score = calculate_match_score(db_prof, user_prefs)
+
+                final_rating = 0.0
+                if db_prof and db_prof.rating is not None:
+                    try: final_rating = float(db_prof.rating)
+                    except: pass
+                else:
+                    try: final_rating = round(float(offer.get('course_gpa', 0) or 0), 1)
+                    except: pass
+
+                final_difficulty = "Moderate"
+                if db_prof and db_prof.difficulty:
+                    try:
+                        diff_val = float(db_prof.difficulty)
+                        if diff_val < 2.5: final_difficulty = "Easy"
+                        elif diff_val > 3.8: final_difficulty = "Hard"
+                    except: pass
+
+                final_wta = None
+                if db_prof and db_prof.would_take_again:
+                    wta_str = str(db_prof.would_take_again).strip()
+                    try:
+                        wta_num = float(wta_str.replace('%', ''))
+                        if wta_str not in ('N/A', '0%') and wta_num > 0:
+                            final_wta = wta_str
+                    except: pass
+
+                final_tags = []
+                if db_prof and db_prof.tags:
+                    final_tags = [t.strip() for t in str(db_prof.tags).split(',')[:3] if t.strip()]
+
+                final_review_count = 0
+                if db_prof and db_prof.total_ratings:
+                    try: final_review_count = int(db_prof.total_ratings)
+                    except: pass
+
+                professors_list.append({
+                    'name': prof_name,
+                    'rating': final_rating,
+                    'difficulty': final_difficulty,
+                    'matchScore': match_score,
+                    'wouldTakeAgain': final_wta,
+                    'tags': final_tags,
+                    'reviewCount': final_review_count,
+                })
+            except Exception:
+                continue
+
+    professors_list.sort(key=lambda x: x['matchScore'], reverse=True)
+    return professors_list[:3]
+
+
 @api_bp.route('/parse-transcript', methods=['POST'])
 def parse_transcript():
     print("\n=== PARSE TRANSCRIPT ROUTE CALLED ===", file=sys.stderr)
@@ -422,14 +512,34 @@ def degree_plan():
         completed_courses = data.get('completed_courses', [])
         credits_per_semester = data.get('credits_per_semester', 15)
         selected_next = data.get('selected_next_semester', None)
+        start_semester = data.get('start_semester', None)
+        start_year = data.get('start_year', None)
+        include_summer = bool(data.get('include_summer', False))
+        user_preferences = data.get('preferences', {})
+        chosen_electives = data.get('chosen_electives', None)
 
         if not department:
             return jsonify({'error': 'Department is required'}), 400
 
         all_courses = get_department_courses(department)
         semesters = generate_degree_plan(
-            all_courses, completed_courses, credits_per_semester, selected_next
+            all_courses,
+            completed_courses,
+            credits_per_semester,
+            selected_next,
+            start_semester=start_semester,
+            start_year=start_year,
+            include_summer=include_summer,
+            chosen_electives=chosen_electives,
         )
+
+        # Enrich each course in the plan with top-3 professor data (using user preferences for scoring)
+        for semester in semesters:
+            for course in semester.get('courses', []):
+                try:
+                    course['professors'] = _build_professors_for_course(course['code'], user_prefs=user_preferences)
+                except Exception:
+                    course['professors'] = []
 
         total_remaining_hours = sum(s['totalHours'] for s in semesters)
 
@@ -437,6 +547,10 @@ def degree_plan():
         eligible = filter_eligible_courses_unique(all_courses, completed_courses)
         eligible_list = []
         for code, course in eligible.items():
+            # Skip placeholder elective slots like "CE 43XX", "LPC XXXX"
+            parts = code.split()
+            if parts and 'X' in parts[-1].upper():
+                continue
             req_type = course.get('Requirement', 'required')
             hrs = course.get('Credit_Hours', 3)
             try:
@@ -453,13 +567,89 @@ def degree_plan():
         # Sort: required first, then by code
         eligible_list.sort(key=lambda x: (0 if x['requirement'] == 'required' else 1, x['code']))
 
-        # Progress stats
+        # Progress stats — count required courses + elective SLOTS (not all 38 elective courses)
         normalized_completed = set(normalize_code(c) for c in completed_courses)
-        all_non_placeholder = [c for c in all_courses if 'XX' not in c['Course_Num']]
-        total_courses = len(all_non_placeholder)
-        total_hours = sum(c.get('Credit_Hours', 3) for c in all_non_placeholder)
-        completed_count = sum(1 for c in all_non_placeholder if normalize_code(c['Course_Num']) in normalized_completed)
-        completed_hours = sum(c.get('Credit_Hours', 3) for c in all_non_placeholder if normalize_code(c['Course_Num']) in normalized_completed)
+
+        # Required courses (non-placeholder, non-elective)
+        required_courses_list = [c for c in all_courses
+            if 'XX' not in c['Course_Num']
+            and c.get('Requirement', 'required').lower() != 'elective']
+        required_total = len(required_courses_list)
+        required_hours = sum(c.get('Credit_Hours', 3) for c in required_courses_list)
+
+        # Elective SLOTS (the XX placeholders, excluding gen-ed)
+        gen_ed_prefixes = ('HIST', 'LPC', 'CA', 'POLS', 'ENGL', 'UNIV')
+        elective_slots_for_stats = [c for c in all_courses
+            if 'XX' in c['Course_Num']
+            and not c['Course_Num'].startswith(gen_ed_prefixes)]
+        elective_slot_count = len(elective_slots_for_stats)
+        elective_slot_hours = sum(c.get('Credit_Hours', 3) for c in elective_slots_for_stats)
+
+        # Gen-ed placeholders (HIST 13XX, LPC XXXX, CA XXXX)
+        gen_ed_slots = [c for c in all_courses
+            if 'XX' in c['Course_Num']
+            and c['Course_Num'].startswith(gen_ed_prefixes)]
+        gen_ed_slot_count = len(gen_ed_slots)
+        gen_ed_slot_hours = sum(c.get('Credit_Hours', 3) for c in gen_ed_slots)
+
+        # TOTALS = required + elective slots + gen-ed slots
+        total_courses = required_total + elective_slot_count + gen_ed_slot_count
+        total_hours = required_hours + elective_slot_hours + gen_ed_slot_hours
+
+        # Completed required courses
+        completed_req_count = sum(1 for c in required_courses_list
+            if normalize_code(c['Course_Num']) in normalized_completed)
+        completed_req_hours = sum(c.get('Credit_Hours', 3) for c in required_courses_list
+            if normalize_code(c['Course_Num']) in normalized_completed)
+
+        # Completed electives: how many elective courses the student has finished (capped at slot count)
+        completed_elective_courses = [c for c in all_courses
+            if c.get('Requirement', 'required').lower() == 'elective'
+            and 'XX' not in c['Course_Num']
+            and normalize_code(c['Course_Num']) in normalized_completed]
+        completed_elective_count = min(len(completed_elective_courses), elective_slot_count)
+        completed_elective_hours = sum(c.get('Credit_Hours', 3)
+            for c in completed_elective_courses[:elective_slot_count])
+
+        # Completed gen-eds: check if gen-ed prefix courses are in transcript
+        completed_gen_ed_count = 0
+        completed_gen_ed_hours = 0
+        for slot in gen_ed_slots:
+            prefix = slot['Course_Num'].split()[0]
+            if any(c.startswith(prefix) for c in normalized_completed):
+                completed_gen_ed_count += 1
+                completed_gen_ed_hours += slot.get('Credit_Hours', 3)
+
+        completed_count = completed_req_count + completed_elective_count + completed_gen_ed_count
+        completed_hours = completed_req_hours + completed_elective_hours + completed_gen_ed_hours
+
+        # All elective courses (not just eligible — user picks from full list)
+        all_elective_courses = []
+        for c in all_courses:
+            code = normalize_code(c['Course_Num'])
+            if 'XX' in c['Course_Num']:
+                continue
+            if c.get('Requirement', 'required') != 'elective':
+                continue
+            if code in normalized_completed:
+                continue
+            hrs = c.get('Credit_Hours', 3)
+            try:
+                hrs = int(hrs)
+            except (ValueError, TypeError):
+                hrs = 3
+            all_elective_courses.append({
+                'code': code,
+                'name': c.get('Course_Name', ''),
+                'creditHours': hrs,
+            })
+        all_elective_courses.sort(key=lambda x: x['code'])
+
+        # Count elective slots needed
+        gen_ed_prefixes = ('HIST', 'LPC', 'CA', 'POLS', 'ENGL', 'UNIV')
+        elective_slots = [c for c in all_courses if 'XX' in c['Course_Num'] and not c['Course_Num'].startswith(gen_ed_prefixes)]
+        completed_elective_count = len([c for c in all_courses if c.get('Requirement') == 'elective' and normalize_code(c['Course_Num']) in normalized_completed])
+        required_elective_count = max(0, len(elective_slots) - completed_elective_count)
 
         return jsonify({
             'success': True,
@@ -467,6 +657,8 @@ def degree_plan():
             'totalSemesters': len(semesters),
             'totalRemainingHours': total_remaining_hours,
             'eligibleCourses': eligible_list,
+            'allElectives': all_elective_courses,
+            'requiredElectiveCount': required_elective_count,
             'stats': {
                 'totalCourses': total_courses,
                 'totalHours': total_hours,

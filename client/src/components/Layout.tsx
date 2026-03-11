@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Compass, Github } from 'lucide-react';
+import { Compass, Github, LogOut } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
   onLogoClick: () => void;
+  user?: { name: string; picture?: string } | null;
+  onSignOut?: () => void;
 }
 
-export default function Layout({ children, onLogoClick }: LayoutProps) {
+export default function Layout({ children, onLogoClick, user, onSignOut }: LayoutProps) {
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
@@ -59,16 +61,40 @@ export default function Layout({ children, onLogoClick }: LayoutProps) {
             </h1>
           </button>
 
-          {/* RIGHT: GITHUB LINK */}
-          <a 
-            href="https://github.com/krm3798/SmartAdvisors" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#0046FF]/50 transition-all group text-white"
-          >
-            <span className="text-sm font-bold hidden sm:block group-hover:text-[#0046FF] transition-colors">GitHub</span>
-            <Github className="w-5 h-5 group-hover:text-[#0046FF] transition-colors" />
-          </a>
+          {/* RIGHT: User + Sign Out + GitHub */}
+          <div className="flex items-center gap-3">
+            {user && (
+              <>
+                <div className="flex items-center gap-2">
+                  {user.picture ? (
+                    <img src={user.picture} alt={user.name} className="w-7 h-7 rounded-full border border-white/20" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-[#0046FF]/30 border border-white/10 flex items-center justify-center">
+                      <span className="text-xs font-bold text-white">{user.name[0]}</span>
+                    </div>
+                  )}
+                  <span className="text-sm font-semibold text-white/70 hidden sm:block">{user.name.split(' ')[0]}</span>
+                </div>
+                {onSignOut && (
+                  <button
+                    onClick={onSignOut}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 transition-all text-white/50 text-xs font-semibold"
+                  >
+                    <LogOut className="w-3.5 h-3.5" /> Sign Out
+                  </button>
+                )}
+              </>
+            )}
+            <a
+              href="https://github.com/krm3798/SmartAdvisors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#0046FF]/50 transition-all group text-white"
+            >
+              <span className="text-sm font-bold hidden sm:block group-hover:text-[#0046FF] transition-colors">GitHub</span>
+              <Github className="w-5 h-5 group-hover:text-[#0046FF] transition-colors" />
+            </a>
+          </div>
 
         </div>
       </nav>

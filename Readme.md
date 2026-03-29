@@ -252,7 +252,13 @@ npm run build
 
 This creates a `dist/` folder with static files. Deploy that folder to **Vercel**, **Netlify**, **Render**, or any static hosting.
 
-> **Important:** Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → your OAuth Client ID → add your production URL (e.g., `https://smartadvisors.onrender.com`) to **Authorized JavaScript Origins**. Without this, Google Sign-In won't work on the deployed site.
+> **Google Sign-In will NOT work until you do this:**
+> 1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → your OAuth Client ID
+> 2. Under **Authorized JavaScript Origins**, add your production URL (e.g., `https://smartadvisors.onrender.com`) — no trailing slash
+> 3. Leave **Authorized redirect URIs** empty (the app uses popup flow, not redirects)
+> 4. Save and wait a few minutes for changes to propagate
+>
+> If you see `Error 400: redirect_uri_mismatch`, this is the fix.
 
 ---
 

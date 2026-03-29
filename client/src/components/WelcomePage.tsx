@@ -34,7 +34,7 @@ export default function WelcomePage({ onGetStarted, onSignIn }: WelcomePageProps
         </h1>
 
         <p className="text-lg md:text-xl text-white/70 mb-12 max-w-2xl mx-auto leading-relaxed font-light">
-          Upload your transcript. We'll figure out what you can take next and find the best professors for each course.
+          Upload your unofficial transcript. We'll figure out what you can take next and find the best professors for each course.
         </p>
 
         {/* How it works — quick 3-step visual */}
@@ -102,7 +102,7 @@ export default function WelcomePage({ onGetStarted, onSignIn }: WelcomePageProps
               </div>
             </div>
             <ul className="space-y-2.5">
-              <FeatureItem text="Upload transcript & detect completed courses" />
+              <FeatureItem text="Upload unofficial transcript & detect completed courses" />
               <FeatureItem text="See eligible classes based on prerequisites" />
               <FeatureItem text="Get professor recommendations matched to your style" />
             </ul>

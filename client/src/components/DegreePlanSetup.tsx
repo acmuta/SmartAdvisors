@@ -14,11 +14,13 @@ interface ElectiveCourse {
   code: string;
   name: string;
   creditHours: number;
+  taken?: boolean;
 }
 
 interface ElectiveGroup {
   group: string;
   hoursRequired: number;
+  hoursCompleted?: number;
   courses: ElectiveCourse[];
 }
 
@@ -111,6 +113,9 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
   };
 
   const toggleElective = (code: string) => {
+    // Don't toggle taken electives
+    const isTaken = electiveGroups.some(g => g.courses.some(c => c.code === code && c.taken));
+    if (isTaken) return;
     setChosenElectives(prev => {
       const next = new Set(prev);
       if (next.has(code)) next.delete(code);
@@ -121,12 +126,12 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
 
   const electivesPicked = chosenElectives.size;
 
-  // Calculate hours selected per elective group
+  // Calculate hours per elective group (taken + selected)
   const selectedHoursByGroup: Record<string, number> = {};
   for (const group of electiveGroups) {
-    let hrs = 0;
+    let hrs = group.hoursCompleted || 0; // start with taken hours
     for (const c of group.courses) {
-      if (chosenElectives.has(c.code)) hrs += c.creditHours;
+      if (!c.taken && chosenElectives.has(c.code)) hrs += c.creditHours;
     }
     selectedHoursByGroup[group.group] = hrs;
   }
@@ -142,7 +147,7 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
 
   const requiredCourses = eligibleCourses.filter(c => c.requirement === 'required');
   const electiveCourses = eligibleCourses.filter(
-    c => c.requirement === 'elective' && (chosenElectives.size === 0 || chosenElectives.has(c.code))
+    c => c.requirement === 'elective' && chosenElectives.has(c.code)
   );
 
   const overTarget = selectedHours > creditsPerSemester + 1;
@@ -224,7 +229,10 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
           <div className="space-y-6">
             {electiveGroups.map(group => {
               const groupHrs = selectedHoursByGroup[group.group] || 0;
+              const takenHrs = group.hoursCompleted || 0;
               const isSatisfied = group.hoursRequired > 0 && groupHrs >= group.hoursRequired;
+              const takenPct = group.hoursRequired > 0 ? Math.min(100, (takenHrs / group.hoursRequired) * 100) : 0;
+              const selectedPct = group.hoursRequired > 0 ? Math.min(100 - takenPct, ((groupHrs - takenHrs) / group.hoursRequired) * 100) : 0;
               return (
                 <div key={group.group}>
                   <div className="flex items-center gap-2 mb-2">
@@ -239,52 +247,90 @@ export default function DegreePlanSetup({ completedCourses, department, onPlanGe
                     }`}>
                       {groupHrs}/{group.hoursRequired} hrs
                     </span>
+                    {takenHrs > 0 && (
+                      <span className="text-xs text-emerald-400/70 font-semibold">
+                        ({takenHrs} taken)
+                      </span>
+                    )}
                   </div>
                   {group.hoursRequired > 0 && (
-                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-3">
-                      <motion.div
-                        className={`h-full rounded-full ${isSatisfied ? 'bg-emerald-500' : 'bg-[#FF8040]'}`}
-                        initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(100, (groupHrs / group.hoursRequired) * 100)}%` }}
-                        transition={{ duration: 0.3 }}
-                      />
+                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-3 flex">
+                      {takenPct > 0 && (
+                        <motion.div
+                          className="h-full bg-emerald-500"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${takenPct}%` }}
+                          transition={{ duration: 0.3 }}
+                        />
+                      )}
+                      {selectedPct > 0 && (
+                        <motion.div
+                          className="h-full bg-[#FF8040]"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${selectedPct}%` }}
+                          transition={{ duration: 0.3, delay: 0.1 }}
+                        />
+                      )}
                     </div>
                   )}
                   <div className="grid md:grid-cols-2 gap-2">
                     {group.courses.map(elective => (
-                      <motion.button
-                        key={elective.code}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => toggleElective(elective.code)}
-                        className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
-                          chosenElectives.has(elective.code)
-                            ? 'border-[#FF8040]/50 bg-[#FF8040]/10 shadow-sm'
-                            : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/20'
-                        }`}
-                      >
+                      elective.taken ? (
                         <div
-                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                            chosenElectives.has(elective.code) ? 'border-transparent bg-[#FF8040]' : 'border-white/20'
+                          key={elective.code}
+                          className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 opacity-60 cursor-default"
+                        >
+                          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                            <Check className="w-3 h-3 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-white font-bold text-sm">{elective.code}</span>
+                              <span className="text-white/30 text-xs bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
+                                {elective.creditHours} hrs
+                              </span>
+                              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                Taken
+                              </span>
+                            </div>
+                            <p className="text-white/35 text-xs truncate mt-0.5">{elective.name}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <motion.button
+                          key={elective.code}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => toggleElective(elective.code)}
+                          className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
+                            chosenElectives.has(elective.code)
+                              ? 'border-[#FF8040]/50 bg-[#FF8040]/10 shadow-sm'
+                              : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/20'
                           }`}
                         >
-                          <AnimatePresence>
-                            {chosenElectives.has(elective.code) && (
-                              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
-                                <Check className="w-3 h-3 text-white" />
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-white font-bold text-sm">{elective.code}</span>
-                            <span className="text-white/30 text-xs bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
-                              {elective.creditHours} hrs
-                            </span>
+                          <div
+                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                              chosenElectives.has(elective.code) ? 'border-transparent bg-[#FF8040]' : 'border-white/20'
+                            }`}
+                          >
+                            <AnimatePresence>
+                              {chosenElectives.has(elective.code) && (
+                                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                                  <Check className="w-3 h-3 text-white" />
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
                           </div>
-                          <p className="text-white/45 text-xs truncate mt-0.5">{elective.name}</p>
-                        </div>
-                      </motion.button>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-white font-bold text-sm">{elective.code}</span>
+                              <span className="text-white/30 text-xs bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
+                                {elective.creditHours} hrs
+                              </span>
+                            </div>
+                            <p className="text-white/45 text-xs truncate mt-0.5">{elective.name}</p>
+                          </div>
+                        </motion.button>
+                      )
                     ))}
                   </div>
                 </div>

@@ -73,7 +73,7 @@ export default function UploadScreen({ file, department, onFileChange, setDepart
             type="file"
             accept=".pdf"
             onChange={onFileChange}
-            aria-label="Upload transcript PDF"
+            aria-label="Upload unofficial transcript PDF"
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
           />
           <div className="flex flex-col items-center pointer-events-none">

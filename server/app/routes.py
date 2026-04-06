@@ -18,7 +18,7 @@ from .scripts.recommendation_engine import (
     get_professor_offerings_for_course,
     generate_degree_plan,
     parse_prereq_string,
-    normalize_code
+    normalize_code,
 )
 from .scripts.parse_transcript import extract_all_courses
 
@@ -432,6 +432,7 @@ def get_recommendations():
                 required.append(r)
 
         # Calculate progress stats using new schema
+        # Use RAW completed set — only count courses the student actually took.
         normalized_completed = set(normalize_code(c) for c in completed_courses)
 
         # Required courses
@@ -445,10 +446,17 @@ def get_recommendations():
         # Elective budgets from degree_courses
         elective_budgets = get_elective_budgets(all_courses)
         total_elective_hours = sum(elective_budgets.values())
-        total_elective_slots = len(elective_budgets)  # number of elective groups
 
-        # Completed elective hours
+        # Calculate elective slots (course count) per group using avg credit hours
         elective_courses = [c for c in all_courses if c.get('requirement_type') == 'elective']
+        total_elective_slots = 0
+        for grp, budget_hrs in elective_budgets.items():
+            grp_courses = [c for c in elective_courses if c.get('elective_group') == grp]
+            if grp_courses and budget_hrs > 0:
+                avg_hrs = sum(c.get('credit_hours', 3) for c in grp_courses) / len(grp_courses)
+                total_elective_slots += max(1, round(budget_hrs / avg_hrs)) if avg_hrs > 0 else 1
+
+        # Completed elective hours and count
         completed_elective_hours = sum(
             c.get('credit_hours', 3) for c in elective_courses
             if normalize_code(c['course_id']) in normalized_completed
@@ -543,6 +551,8 @@ def degree_plan():
         eligible_list.sort(key=lambda x: (0 if x['requirement'] == 'required' else 1, x['code']))
 
         # Progress stats using new schema
+        # Use RAW completed set for stats (not expanded) — only count courses
+        # the student actually took, not inferred prereqs.
         normalized_completed = set(normalize_code(c) for c in completed_courses)
 
         # Required courses
@@ -567,13 +577,13 @@ def degree_plan():
         if degree_info and degree_info.get('total_hours'):
             total_hours = degree_info['total_hours']
 
-        # Completed required
+        # Completed required — only courses in the degree's required list
         completed_req_count = sum(1 for c in required_courses_list
             if normalize_code(c['course_id']) in normalized_completed)
         completed_req_hours = sum(c.get('credit_hours', 3) for c in required_courses_list
             if normalize_code(c['course_id']) in normalized_completed)
 
-        # Completed electives by group
+        # Completed electives — only electives in the degree's elective list
         elective_courses = [c for c in all_courses if c.get('requirement_type') == 'elective']
         completed_elective_hours_total = 0
         completed_elective_count = 0
@@ -582,18 +592,21 @@ def degree_plan():
                 completed_elective_hours_total += c.get('credit_hours', 3)
                 completed_elective_count += 1
 
-        # Completed core curriculum
+        # Completed core curriculum — capped per category so taking extra
+        # courses in one area doesn't inflate the count beyond the budget.
         completed_core_hours = 0
         for cat_name, cat_info in core_curriculum.items():
+            cat_completed = 0
             for cc_course in cat_info['courses']:
                 if normalize_code(cc_course['course_id']) in normalized_completed:
-                    completed_core_hours += cc_course.get('course_hours', 3)
+                    cat_completed += cc_course.get('course_hours', 3)
+            completed_core_hours += min(cat_completed, cat_info['hours_required'])
 
         completed_count = completed_req_count + completed_elective_count
         completed_hours = completed_req_hours + completed_elective_hours_total + completed_core_hours
 
         # Build elective groups for frontend (grouped by elective_group)
-        elective_groups = []
+        # Includes completed electives marked as taken so the UI can show progress
         elective_by_group = {}
         for c in all_courses:
             if c.get('requirement_type') != 'elective':
@@ -603,29 +616,34 @@ def degree_plan():
                 elective_by_group[group] = {
                     'group': group,
                     'hoursRequired': c.get('elective_hours') or 0,
+                    'hoursCompleted': 0,
                     'courses': [],
                 }
             code = normalize_code(c['course_id'])
-            if code not in normalized_completed:
-                hrs = c.get('credit_hours', 3)
-                try:
-                    hrs = int(hrs)
-                except (ValueError, TypeError):
-                    hrs = 3
-                elective_by_group[group]['courses'].append({
-                    'code': code,
-                    'name': c.get('course_name', ''),
-                    'creditHours': hrs,
-                })
+            hrs = c.get('credit_hours', 3)
+            try:
+                hrs = int(hrs)
+            except (ValueError, TypeError):
+                hrs = 3
+            is_taken = code in normalized_completed
+            if is_taken:
+                elective_by_group[group]['hoursCompleted'] += hrs
+            elective_by_group[group]['courses'].append({
+                'code': code,
+                'name': c.get('course_name', ''),
+                'creditHours': hrs,
+                **(({'taken': True}) if is_taken else {}),
+            })
         elective_groups = sorted(elective_by_group.values(), key=lambda x: x['group'])
 
-        # Required elective count: how many elective courses needed to fill all group budgets
+        # Required elective count: how many more elective courses needed (accounting for taken)
         required_elective_count = 0
         for group_info in elective_groups:
-            hrs_needed = group_info['hoursRequired']
-            if hrs_needed > 0 and group_info['courses']:
-                avg_hrs = sum(c['creditHours'] for c in group_info['courses']) / len(group_info['courses'])
-                required_elective_count += max(1, round(hrs_needed / avg_hrs)) if avg_hrs > 0 else 1
+            hrs_remaining = group_info['hoursRequired'] - group_info.get('hoursCompleted', 0)
+            untaken = [c for c in group_info['courses'] if not c.get('taken')]
+            if hrs_remaining > 0 and untaken:
+                avg_hrs = sum(c['creditHours'] for c in untaken) / len(untaken)
+                required_elective_count += max(1, round(hrs_remaining / avg_hrs)) if avg_hrs > 0 else 1
 
         return jsonify({
             'success': True,
@@ -633,7 +651,7 @@ def degree_plan():
             'totalSemesters': len(semesters),
             'totalRemainingHours': total_remaining_hours,
             'eligibleCourses': eligible_list,
-            'allElectives': [c for g in elective_groups for c in g['courses']],
+            'allElectives': [c for g in elective_groups for c in g['courses'] if not c.get('taken')],
             'electiveGroups': elective_groups,
             'requiredElectiveCount': required_elective_count,
             'stats': {

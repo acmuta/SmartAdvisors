@@ -79,7 +79,7 @@ export default function WelcomePage({ onGetStarted, onSignIn }: WelcomePageProps
               transition={{ delay: 0.45, duration: 0.5 }}
               className="text-[15px] md:text-lg text-[var(--text-body)] mb-10 max-w-lg leading-relaxed"
             >
-              Upload your transcript. We&rsquo;ll figure out what you can take next
+              Upload your unofficial transcript. We&rsquo;ll figure out what you can take next
               and find the best professors for each course.
             </motion.p>
 
@@ -90,7 +90,7 @@ export default function WelcomePage({ onGetStarted, onSignIn }: WelcomePageProps
               transition={{ delay: 0.5 }}
               className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-0 mb-10"
             >
-              <Step num="1" label="Upload Transcript" icon={<Upload className="w-4 h-4" />} />
+              <Step num="1" label="Upload Unofficial Transcript" icon={<Upload className="w-4 h-4" />} />
               <div className="step-connector hidden sm:block" />
               <Step num="2" label="Set Preferences" icon={<Star className="w-4 h-4" />} />
               <div className="step-connector hidden sm:block" />
@@ -158,7 +158,7 @@ export default function WelcomePage({ onGetStarted, onSignIn }: WelcomePageProps
                 <span className="sa-check sa-check--orange">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="#ff6b35"><circle cx="12" cy="12" r="12"/><path d="M9 12.5l2 2 4-4" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </span>
-                Upload transcript &amp; detect completed courses
+                Upload unofficial transcript &amp; detect completed courses
               </li>
               <li className="sa-card-list-item">
                 <span className="sa-check sa-check--orange">
@@ -221,7 +221,7 @@ export default function WelcomePage({ onGetStarted, onSignIn }: WelcomePageProps
                 <span className="sa-check sa-check--green">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="#22c55e"><circle cx="12" cy="12" r="12"/><path d="M9 12.5l2 2 4-4" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </span>
-                Transcript processed locally — never stored on servers
+                Unofficial transcript uploaded securely — never stored on servers
               </li>
               <li className="sa-card-list-item">
                 <span className="sa-check sa-check--green">

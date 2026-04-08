@@ -11,7 +11,9 @@ import PreferenceForm, { Preferences } from './components/PreferenceForm';
 import RecommendationDashboard from './components/RecommendationDashboard';
 import DegreePlanSetup from './components/DegreePlanSetup';
 import SemesterPlanView from './components/SemesterPlanView';
-import WelcomeBack from './components/WelcomeBack';
+import DashboardLayout from './components/DashboardLayout';
+import DashboardPage from './components/DashboardPage';
+import { getDegreeName, getCollegeName } from './config/colleges';
 
 // Use localhost for local development
 const API_URL = 'http://127.0.0.1:8000';
@@ -210,6 +212,13 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
     setStep(3);
   };
 
+  const handleGoToDashboard = () => {
+    if (isLoggedIn && degreePlan && googleUser) {
+      setIsReturningUser(true);
+      setStep(4);
+    }
+  };
+
   const handleNewTranscript = () => {
     if (googleUser) localStorage.removeItem(STORAGE_KEY(googleUser.email));
     setIsReturningUser(false);
@@ -278,13 +287,13 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
   }
 
   if (step === 1) return (
-    <Layout onLogoClick={handleLogoClick} user={isLoggedIn ? googleUser : undefined} onSignOut={isLoggedIn ? handleSignOut : undefined}>
+    <Layout onLogoClick={handleLogoClick} user={isLoggedIn ? googleUser : undefined} onSignOut={isLoggedIn ? handleSignOut : undefined} onDashboard={isLoggedIn && degreePlan ? handleGoToDashboard : undefined}>
       <UploadScreen file={file} department={department} onFileChange={handleFileChange} setDepartment={setDepartment} onNext={handleUploadAndParse} onBack={() => { if (enteredViaOverlay) { setEnteredViaOverlay(false); setStep(0); setShowLogin(true); } else { setStep(0); } }} isLoading={isLoading} />
     </Layout>
   );
 
   if (step === 2) return (
-    <Layout onLogoClick={handleLogoClick} user={isLoggedIn ? googleUser : undefined} onSignOut={isLoggedIn ? handleSignOut : undefined}>
+    <Layout onLogoClick={handleLogoClick} user={isLoggedIn ? googleUser : undefined} onSignOut={isLoggedIn ? handleSignOut : undefined} onDashboard={isLoggedIn && degreePlan ? handleGoToDashboard : undefined}>
       <TranscriptReview courses={completedCourses} onNext={() => setStep(3)} onBack={() => setStep(1)} />
     </Layout>
   );
@@ -295,7 +304,7 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
       // Signed-in flow: collect preferences first, then show plan setup
       if (!userPrefs) {
         return (
-          <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
+          <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut} onDashboard={degreePlan ? handleGoToDashboard : undefined}>
             <PreferenceForm
               onGenerateSchedule={(prefs) => setUserPrefs(prefs)}
               isLoading={false}
@@ -306,7 +315,7 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
         );
       }
       return (
-        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
+        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut} onDashboard={degreePlan ? handleGoToDashboard : undefined}>
           <DegreePlanSetup
             completedCourses={completedCourses}
             department={department}
@@ -326,26 +335,46 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
 
   // Step 4: branches based on login state
   if (step === 4) {
-    // Returning user welcome dashboard
+    // Returning user — full SaaS dashboard
     if (isLoggedIn && degreePlan && isReturningUser && googleUser) {
+      const handleDashboardNav = (id: string) => {
+        switch (id) {
+          case 'dashboard':
+            // Already on dashboard — no-op
+            break;
+          case 'plan':
+            setIsReturningUser(false); // Goes to SemesterPlanView
+            break;
+          default:
+            // courses, professors, settings — not yet built
+            break;
+        }
+      };
+
       return (
-        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
-          <WelcomeBack
+        <DashboardLayout
+          userName={googleUser.name}
+          userPicture={googleUser.picture}
+          department={getDegreeName(department) || department}
+          onSignOut={handleSignOut}
+          onNavClick={handleDashboardNav}
+          onLogoClick={handleLogoClick}
+        >
+          <DashboardPage
             userName={googleUser.name}
-            userPicture={googleUser.picture}
-            plan={degreePlan}
-            department={department}
+            department={getDegreeName(department) || department}
+            college={getCollegeName(department) || 'College of Engineering'}
             onViewPlan={() => setIsReturningUser(false)}
-            onEditPlan={() => { setIsReturningUser(false); handleEditPlan(); }}
+            onEditPlan={handleEditPlan}
             onNewTranscript={handleNewTranscript}
           />
-        </Layout>
+        </DashboardLayout>
       );
     }
     // Full semester plan view
     if (isLoggedIn && degreePlan) {
       return (
-        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut}>
+        <Layout onLogoClick={handleLogoClick} user={googleUser} onSignOut={handleSignOut} onDashboard={handleGoToDashboard}>
           <SemesterPlanView
             plan={degreePlan}
             onBack={() => setStep(3)}

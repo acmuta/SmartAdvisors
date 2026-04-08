@@ -22,6 +22,14 @@ const API_URL = 'http://127.0.0.1:8000';
 
 const STORAGE_KEY = (email: string) => `sa_plan_${email}`;
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 30000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 interface ApiRecommendationResponse {
   success: boolean;
   recommendations: any[];
@@ -69,13 +77,23 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
 
   const handleUploadAndParse = async () => {
     if (!file) return;
+
+    if (file.size > MAX_FILE_SIZE) {
+      alert('File too large. Please upload a PDF under 5 MB.');
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      alert('Please upload a PDF file.');
+      return;
+    }
+
     setIsLoading(true);
 
     const formData = new FormData();
     formData.append('transcript', file);
 
     try {
-      const response = await fetch(`${API_URL}/api/parse-transcript`, {
+      const response = await fetchWithTimeout(`${API_URL}/api/parse-transcript`, {
         method: 'POST',
         body: formData,
       });
@@ -85,11 +103,14 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
         setCompletedCourses(data.courses);
         setStep(2);
       } else {
-        alert("Error parsing transcript: " + (data.error || "Unknown error"));
+        alert(data.error || 'Error parsing transcript.');
       }
-    } catch (error) {
-      console.error("Parse error:", error);
-      alert("Could not connect to server. Is the backend running?");
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        alert('Request timed out. Please try again.');
+      } else {
+        alert('Could not connect to server. Is the backend running?');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -106,7 +127,7 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
     formData.append('preferences', JSON.stringify(preferences));
 
     try {
-      const response = await fetch(`${API_URL}/api/recommendations`, {
+      const response = await fetchWithTimeout(`${API_URL}/api/recommendations`, {
         method: 'POST',
         body: formData,
       });
@@ -115,10 +136,14 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
         setApiData(data);
         setStep(4);
       } else {
-        alert("Error: " + (data.error || "Unknown error occurred"));
+        alert(data.error || 'Could not generate recommendations.');
       }
-    } catch (error) {
-      alert("Could not connect to server.");
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        alert('Request timed out. Please try again.');
+      } else {
+        alert('Could not connect to server. Is the backend running?');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +161,7 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/degree-plan`, {
+      const response = await fetchWithTimeout(`${API_URL}/api/degree-plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -150,7 +175,7 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
           chosen_electives: chosenElectives,
           preferences: userPrefs,
         }),
-      });
+      }, 60000); // degree plans can take longer
       const data = await response.json();
       if (response.ok && data.success) {
         setDegreePlan(data);
@@ -168,10 +193,14 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
           }
         }
       } else {
-        alert("Error: " + (data.error || "Could not generate degree plan"));
+        alert(data.error || 'Could not generate degree plan.');
       }
-    } catch (error) {
-      alert("Could not connect to server.");
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        alert('Request timed out. Please try again.');
+      } else {
+        alert('Could not connect to server. Is the backend running?');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -241,15 +270,20 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
       if (savedRaw) {
         try {
           const saved = JSON.parse(savedRaw);
-          setCompletedCourses(saved.completedCourses || []);
-          setDepartment(saved.department || '');
-          setDegreePlan(saved.degreePlan);
-          setGoogleUser(user);
-          setIsLoggedIn(true);
-          setIsReturningUser(true);
-          setShowLogin(false);
-          setStep(4);
-          return;
+          // Validate that saved plan data is usable
+          if (saved.degreePlan && Array.isArray(saved.degreePlan.plan) && saved.degreePlan.stats) {
+            setCompletedCourses(saved.completedCourses || []);
+            setDepartment(saved.department || '');
+            setDegreePlan(saved.degreePlan);
+            setGoogleUser(user);
+            setIsLoggedIn(true);
+            setIsReturningUser(true);
+            setShowLogin(false);
+            setStep(4);
+            return;
+          }
+          // Data is malformed — clear it
+          localStorage.removeItem(STORAGE_KEY(user.email));
         } catch {
           localStorage.removeItem(STORAGE_KEY(user.email));
         }
@@ -288,7 +322,16 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
 
   if (step === 1) return (
     <Layout onLogoClick={handleLogoClick} user={isLoggedIn ? googleUser : undefined} onSignOut={isLoggedIn ? handleSignOut : undefined} onDashboard={isLoggedIn && degreePlan ? handleGoToDashboard : undefined}>
-      <UploadScreen file={file} department={department} onFileChange={handleFileChange} setDepartment={setDepartment} onNext={handleUploadAndParse} onBack={() => { if (enteredViaOverlay) { setEnteredViaOverlay(false); setStep(0); setShowLogin(true); } else { setStep(0); } }} isLoading={isLoading} />
+      <UploadScreen
+        file={file}
+        department={department}
+        onFileChange={handleFileChange}
+        setDepartment={setDepartment}
+        onNext={handleUploadAndParse}
+        onSkipTranscript={() => { setCompletedCourses([]); setStep(3); }}
+        onBack={() => { if (enteredViaOverlay) { setEnteredViaOverlay(false); setStep(0); setShowLogin(true); } else { setStep(0); } }}
+        isLoading={isLoading}
+      />
     </Layout>
   );
 

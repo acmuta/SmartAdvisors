@@ -98,22 +98,20 @@ export default function DashboardPage({
         { y: 0, opacity: 1, duration: 0.5, ease: 'power3.out', stagger: 0.08, delay: 0.3 });
     }
 
-    // Count-up stat values
+    // Count-up stat values — derive targets from real STATS data
     const valueEls = cardsRef.current?.querySelectorAll('.ds-stat-value');
-    if (valueEls) {
-      const targets = [
-        { val: 4, suffix: '', delay: 300 },
-        { val: 31, suffix: '', delay: 380 },
-        { val: 89, suffix: '', delay: 460 },
-        { val: 85, suffix: '%', delay: 540 },
-      ];
+    if (valueEls && STATS.length) {
       valueEls.forEach((el, i) => {
-        const t = targets[i];
-        if (!t) return;
+        const stat = STATS[i];
+        if (!stat) return;
         const htmlEl = el as HTMLElement;
-        htmlEl.dataset.suffix = t.suffix;
-        htmlEl.textContent = '0' + t.suffix;
-        countUp(htmlEl, t.val, 800, t.delay);
+        const numeric = parseInt(stat.value, 10);
+        const hasPct = stat.value.includes('%');
+        htmlEl.dataset.suffix = hasPct ? '%' : '';
+        htmlEl.textContent = '0' + (hasPct ? '%' : '');
+        if (!isNaN(numeric)) {
+          countUp(htmlEl, numeric, 800, 300 + i * 80);
+        }
       });
     }
 

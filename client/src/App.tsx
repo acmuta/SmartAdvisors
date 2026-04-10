@@ -39,6 +39,7 @@ interface ApiRecommendationResponse {
   success: boolean;
   recommendations: any[];
   electiveRecommendations?: any[];
+  electiveGroups?: { group: string; hoursRequired: number; hoursCompleted: number }[];
   stats?: any;
 }
 
@@ -593,6 +594,7 @@ function App({ googleOAuthEnabled = true }: { googleOAuthEnabled?: boolean }) {
             userData={{
               recommendations: apiData.recommendations,
               electiveRecommendations: apiData.electiveRecommendations || [],
+              electiveGroups: apiData.electiveGroups || [],
               stats: apiData.stats,
             }}
             onBack={() => setStep(3)}

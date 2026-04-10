@@ -466,16 +466,19 @@ def get_recommendations():
                 'corequisites': coreqs if coreqs and coreqs.lower() != 'none' else '',
                 'professors': professors_list
             }
-            # Tag with requirement type for partitioning
+            # Tag with requirement type and elective group for partitioning
             entry['_requirement'] = course.get('requirement_type', 'required')
+            entry['_elective_group'] = course.get('elective_group')
             result.append(entry)
 
-        # Partition into required vs elective
+        # Partition into required vs elective, preserving group info on electives
         required = []
         electives = []
         for r in result:
             req_type = r.pop('_requirement', 'required')
+            elective_group = r.pop('_elective_group', None)
             if req_type == 'elective':
+                r['electiveGroup'] = elective_group
                 electives.append(r)
             else:
                 required.append(r)
@@ -515,12 +518,33 @@ def get_recommendations():
             if normalize_code(c['course_id']) in normalized_completed
         )
 
+        # Build elective groups summary for frontend grouping
+        elective_group_map = {}
+        for c in elective_courses:
+            group = c.get('elective_group', 'other')
+            if group not in elective_group_map:
+                elective_group_map[group] = {
+                    'group': group,
+                    'hoursRequired': c.get('elective_hours') or 0,
+                    'hoursCompleted': 0,
+                }
+            code = normalize_code(c['course_id'])
+            hrs = c.get('credit_hours', 3)
+            try:
+                hrs = int(hrs)
+            except (ValueError, TypeError):
+                hrs = 3
+            if code in normalized_completed:
+                elective_group_map[group]['hoursCompleted'] += hrs
+        elective_groups_list = sorted(elective_group_map.values(), key=lambda x: x['group'])
+
         _annotate_match_percent([required, electives])
 
         return jsonify({
             'success': True,
             'recommendations': required,
             'electiveRecommendations': electives,
+            'electiveGroups': elective_groups_list,
             'stats': {
                 'totalRequiredCourses': total_required,
                 'totalRequiredHours': total_required_hours,

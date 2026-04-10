@@ -552,45 +552,95 @@ export default function PlanDegreePage({
             ) : (
               <>
                 <div className="scrollbar-themed min-h-0 flex-1 overflow-y-auto p-3">
-                  <div className="space-y-2">
-                    {electiveCourses.map((c) => {
-                      const on = wishlist.has(c.id);
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => toggleWishlist(c.id)}
-                          className="flex w-full items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-[background,border-color,box-shadow] duration-150"
-                          style={{
-                            background: on ? 'var(--purple-dim)' : 'var(--s2)',
-                            borderColor: on ? 'var(--purple-border)' : 'var(--b0)',
-                            boxShadow: on ? '0 0 0 1px rgba(155, 126, 248, 0.12)' : 'none',
-                          }}
-                        >
-                          <span
-                            className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border"
-                            style={{
-                              borderColor: 'var(--purple-border)',
-                              background: on ? 'var(--purple)' : 'transparent',
-                            }}
-                          >
-                            {on && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span
-                              className="block truncate font-bold text-[var(--text)]"
-                              style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-                            >
-                              {c.code}
-                            </span>
-                            <span className="block truncate text-xs text-[var(--t2)]">
-                              {c.name}
-                              {(c as any).group && <span className="ml-1 text-[10px] opacity-50">({(c as any).group})</span>}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
+                  <div className="space-y-1">
+                    {(() => {
+                      // Group electives by their group for organized display
+                      const groupOrder = electiveGroups.map((g) => g.group);
+                      const grouped: Record<string, typeof electiveCourses> = {};
+                      for (const c of electiveCourses) {
+                        const g = (c as any).group || 'other';
+                        (grouped[g] ??= []).push(c);
+                      }
+                      const sortedGroups = [
+                        ...groupOrder.filter((g) => grouped[g]?.length),
+                        ...Object.keys(grouped).filter((g) => !groupOrder.includes(g)),
+                      ];
+
+                      // Fallback: if no groups, render flat
+                      if (sortedGroups.length <= 1 && !electiveGroups.length) {
+                        return electiveCourses.map((c) => {
+                          const on = wishlist.has(c.id);
+                          return (
+                            <button key={c.id} type="button" onClick={() => toggleWishlist(c.id)}
+                              className="flex w-full items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-[background,border-color,box-shadow] duration-150"
+                              style={{ background: on ? 'var(--purple-dim)' : 'var(--s2)', borderColor: on ? 'var(--purple-border)' : 'var(--b0)', boxShadow: on ? '0 0 0 1px rgba(155, 126, 248, 0.12)' : 'none' }}>
+                              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                                style={{ borderColor: 'var(--purple-border)', background: on ? 'var(--purple)' : 'transparent' }}>
+                                {on && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-bold text-[var(--text)]" style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>{c.code}</span>
+                                <span className="block truncate text-xs text-[var(--t2)]">{c.name}</span>
+                              </span>
+                            </button>
+                          );
+                        });
+                      }
+
+                      return sortedGroups.map((groupName) => {
+                        const groupCourses = grouped[groupName] || [];
+                        const groupInfo = electiveGroups.find((g) => g.group === groupName);
+                        const hrsReq = groupInfo?.hoursRequired ?? 0;
+                        const hrsComp = groupInfo?.hoursCompleted ?? 0;
+                        const selectedHrs = Array.from(wishlist).reduce((sum, id) => {
+                          const c = electiveCourses.find((ec) => ec.id === id && (ec as any).group === groupName);
+                          return sum + (c ? c.creditHours : 0);
+                        }, 0);
+                        const totalFilled = hrsComp + selectedHrs;
+                        const isSatisfied = totalFilled >= hrsReq;
+                        const label = groupName.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+
+                        return (
+                          <div key={groupName} className="mb-3">
+                            <div className="sticky top-0 z-10 mb-1.5 rounded-lg border border-[var(--purple-border)]/40 bg-[var(--bg)]/95 px-3 py-2 backdrop-blur-sm">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--purple)]">{label}</span>
+                                <span className={`text-[10px] font-semibold ${isSatisfied ? 'text-green-400' : 'text-[var(--t2)]'}`}>
+                                  {totalFilled}/{hrsReq} hrs
+                                </span>
+                              </div>
+                              <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--b0)]">
+                                {hrsComp > 0 && (
+                                  <div className="float-left h-full rounded-full bg-green-500" style={{ width: `${Math.min(100, (hrsComp / hrsReq) * 100)}%` }} />
+                                )}
+                                {selectedHrs > 0 && (
+                                  <div className="float-left h-full rounded-full bg-[var(--purple)]" style={{ width: `${Math.min(100 - (hrsComp / hrsReq) * 100, (selectedHrs / hrsReq) * 100)}%` }} />
+                                )}
+                              </div>
+                            </div>
+                            <div className="space-y-1.5">
+                              {groupCourses.map((c) => {
+                                const on = wishlist.has(c.id);
+                                return (
+                                  <button key={c.id} type="button" onClick={() => toggleWishlist(c.id)}
+                                    className="flex w-full items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-[background,border-color,box-shadow] duration-150"
+                                    style={{ background: on ? 'var(--purple-dim)' : 'var(--s2)', borderColor: on ? 'var(--purple-border)' : 'var(--b0)', boxShadow: on ? '0 0 0 1px rgba(155, 126, 248, 0.12)' : 'none' }}>
+                                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                                      style={{ borderColor: 'var(--purple-border)', background: on ? 'var(--purple)' : 'transparent' }}>
+                                      {on && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate font-bold text-[var(--text)]" style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>{c.code}</span>
+                                      <span className="block truncate text-xs text-[var(--t2)]">{c.name}</span>
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
                     </div>
                   </div>
 
@@ -774,29 +824,78 @@ export default function PlanDegreePage({
                       No elective courses available for this semester.
                     </p>
                   ) : (
-                    <ul className="space-y-2">
-                      {sortedElectives.map((c) => {
-                        const wish = wishlist.has(c.id);
-                        return (
-                          <CourseRow
-                            key={`${c.id}-${shakeTarget === c.id ? shakeTick : 0}`}
-                            course={c}
-                            variant="elec"
-                            selected={selected.has(c.id)}
-                            dim={!selected.has(c.id) && totalHrs + c.creditHours > maxHrs}
-                            shake={shakeTarget === c.id ? shakeTick : 0}
-                            onToggle={() => tryToggleCourse(c)}
-                            badge={
-                              wish && c.missingPrereqs.length === 0 ? (
-                                <span className="rounded-md bg-[var(--purple-dim)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--purple)]">
-                                  ★ Wishlist
+                    <div className="space-y-4">
+                      {(() => {
+                        // Group electives by their group
+                        const groupOrder = electiveGroups.map((g) => g.group);
+                        const grouped: Record<string, typeof sortedElectives> = {};
+                        for (const c of sortedElectives) {
+                          const g = (c as any).group || 'other';
+                          (grouped[g] ??= []).push(c);
+                        }
+                        const sortedGroups = [
+                          ...groupOrder.filter((g) => grouped[g]?.length),
+                          ...Object.keys(grouped).filter((g) => !groupOrder.includes(g)),
+                        ];
+
+                        // Flat fallback if no groups
+                        if (sortedGroups.length <= 1 && !electiveGroups.length) {
+                          return (
+                            <ul className="space-y-2">
+                              {sortedElectives.map((c) => {
+                                const wish = wishlist.has(c.id);
+                                return (
+                                  <CourseRow key={`${c.id}-${shakeTarget === c.id ? shakeTick : 0}`} course={c} variant="elec"
+                                    selected={selected.has(c.id)} dim={!selected.has(c.id) && totalHrs + c.creditHours > maxHrs}
+                                    shake={shakeTarget === c.id ? shakeTick : 0} onToggle={() => tryToggleCourse(c)}
+                                    badge={wish && c.missingPrereqs.length === 0 ? (
+                                      <span className="rounded-md bg-[var(--purple-dim)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--purple)]">★ Wishlist</span>
+                                    ) : null} />
+                                );
+                              })}
+                            </ul>
+                          );
+                        }
+
+                        return sortedGroups.map((groupName) => {
+                          const groupCourses = grouped[groupName] || [];
+                          const groupInfo = electiveGroups.find((g) => g.group === groupName);
+                          const hrsReq = groupInfo?.hoursRequired ?? 0;
+                          const hrsComp = groupInfo?.hoursCompleted ?? 0;
+                          const selectedHrs = Array.from(wishlist).reduce((sum, id) => {
+                            const c = electiveCourses.find((ec) => ec.id === id && (ec as any).group === groupName);
+                            return sum + (c ? c.creditHours : 0);
+                          }, 0);
+                          const totalFilled = hrsComp + selectedHrs;
+                          const isSatisfied = totalFilled >= hrsReq;
+                          const label = groupName.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+
+                          return (
+                            <div key={groupName}>
+                              <div className="mb-2 flex items-center gap-2 border-b border-[var(--b0)] pb-1.5">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--purple)]">{label}</span>
+                                <span className={`ml-auto text-[10px] font-semibold ${isSatisfied ? 'text-green-400' : 'text-[var(--t2)]'}`}>
+                                  {totalFilled}/{hrsReq} hrs
                                 </span>
-                              ) : null
-                            }
-                          />
-                        );
-                      })}
-                    </ul>
+                              </div>
+                              <ul className="space-y-2">
+                                {groupCourses.map((c) => {
+                                  const wish = wishlist.has(c.id);
+                                  return (
+                                    <CourseRow key={`${c.id}-${shakeTarget === c.id ? shakeTick : 0}`} course={c} variant="elec"
+                                      selected={selected.has(c.id)} dim={!selected.has(c.id) && totalHrs + c.creditHours > maxHrs}
+                                      shake={shakeTarget === c.id ? shakeTick : 0} onToggle={() => tryToggleCourse(c)}
+                                      badge={wish && c.missingPrereqs.length === 0 ? (
+                                        <span className="rounded-md bg-[var(--purple-dim)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--purple)]">★ Wishlist</span>
+                                      ) : null} />
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
                   )}
                   </div>
                 </>

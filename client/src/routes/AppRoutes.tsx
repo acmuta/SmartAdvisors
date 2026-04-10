@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, type ComponentProps } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Layout from '../components/Layout';
@@ -322,6 +322,7 @@ function DashboardRoute() {
   const {
     googleUser,
     degreePlan,
+    completedCourses,
     department,
     handleLogoClick,
     handleSignOut,
@@ -349,10 +350,14 @@ function DashboardRoute() {
       onLogoClick={handleLogoClick}
     >
       <DashboardPage
+        plan={
+          ((degreePlan as { degreePlan?: unknown } | null)?.degreePlan ??
+            degreePlan) as ComponentProps<typeof DashboardPage>['plan']
+        }
+        completedCourses={completedCourses}
         userName={googleUser.name}
         department={getDegreeName(department) || department}
         college={getCollegeName(department) || 'College of Engineering'}
-        degreePlan={(degreePlan as any)?.degreePlan || degreePlan as any}
         onViewPlan={() => { setIsReturningUser(false); navigate('/plan'); }}
         onEditPlan={handleEditPlan}
         onNewTranscript={handleNewTranscript}
